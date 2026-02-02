@@ -1,0 +1,15 @@
+<!-- livebook:{"autosave_interval_s":600,"default_language":"python"} -->
+
+# Explorer
+
+```elixir
+Mix.install([
+  {:explorer, "~> 0.11.1"}
+])
+```
+
+## Section
+
+```elixir
+fruits = Explorer.Series.from_list(["apple", "mango", "banana", "orange"])
+```
