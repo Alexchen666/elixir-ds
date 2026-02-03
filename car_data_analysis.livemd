@@ -1,6 +1,6 @@
-<!-- livebook:{"autosave_interval_s":600,"default_language":"python"} -->
+<!-- livebook:{"autosave_interval_s":600,"file_entries":[{"name":"car_data_cleaned.csv","type":"attachment"}]} -->
 
-# Explorer
+# Car Data Analysis
 
 ```elixir
 Mix.install([
@@ -8,8 +8,165 @@ Mix.install([
 ])
 ```
 
-## Section
+## 1. Introduction
+
+In this project, I will determine what influences and drives the car prices (MSRP, Manufacturer’s Suggested Retail Price) given its technical specs. Specifically, I will demonstrate which car(s) is/are the most under/overpriced one(s).
+
+The target variable is continuous, so it is reasonable to use regression models. Besides, in this case, I focus on the factors influencing car prices, so interpretability is important. In the project, I will perform data cleaning and preliminary data visualisation first, fit several base models with good interpretability, conduct hyperparameter tuning, interpret the model, and explain some cases from the prediction as well as demonstrate the cars I believe to be most under/overpriced. In the end, I will further discuss the effect of the brand.
+
+All the assumptions I took in the project:
+
+> The effect of the brand is small so I don't have to include the variable related to the brand.
+> 
+> The imputation method is robust.
+> 
+> Except for the variables in the dataset, there are no other variables determining the price of a car, including promotion, and pricing strategy.
 
 ```elixir
-fruits = Explorer.Series.from_list(["apple", "mango", "banana", "orange"])
+require Explorer.DataFrame, as: DF
+require Explorer.Query, as: Q
 ```
+
+```elixir
+df = DF.from_csv!("~/SideProjects/elixir-ds/car_data_cleaned.csv")
+```
+
+```elixir
+df |> DF.head()
+```
+
+```elixir
+df |> DF.n_columns()
+```
+
+```elixir
+df |> DF.n_rows()
+```
+
+## 2. Data Cleaning
+
+In this section, I will work on several things,
+
+* Drop the unnecessary columns
+* Tidy the categorical variables
+* Set the correct data types
+
+Among all featuers, it is difficult to know the meaning of `Other Features`, so I worked on this first.
+
+```elixir
+(df 
+  |> DF.select("Other Features") 
+  |> DF.to_series())["Other Features"] 
+  |> Explorer.Series.split("\r\n") 
+  |> Explorer.Series.to_list()
+  |> List.flatten()
+  |> Enum.frequencies()
+  |> Enum.to_list()
+  |> Enum.sort_by(&elem(&1, 1), :desc)
+  |> Enum.take(20)
+```
+
+Many common `Other Features` are overlapped with the other variables in the model, such as the features related to airbags, child safety rear door locks, ABS, stability control, back-up camera, tire pressure monitor, parking aid, and so on. So to simplify the data, I will drop this column.
+
+Given different data types, the methods of preprocessing are different. The list below is the methods summary I will use to process the data after checking the data.
+
+Consider all variables,
+
+### Response Variable
+
+* MSRP: the response variable, only keep the data without NA
+
+### Unnecessary Variables (Drop the Variables)
+
+> Assumption:
+> 
+> In this project, I only looked at the technical specs, hence I assumed that the effect of the brand is small and I don't have to include the variable related to the brand.
+
+* Car_Make_Model_Style: do not consider (assumption), drop
+* Style Name: do not consider (assumption), drop
+* EPA Classification: because it is similar to Body Style and contains lots of NA values, I dropped this one and keep Body Style instead
+* Basic Miles/km: not related to technical specs, drop
+* Basic Years: not related to technical specs, drop
+* Corrosion Miles/km: not related to technical specs, drop
+* Corrosion Years: not related to technical specs, drop
+* Drivetrain Miles/km: not related to technical specs, drop
+* Drivetrain Years: not related to technical specs, drop
+* Roadside Assistance Miles/km: not related to technical specs, drop
+* Roadside Assistance Years: not related to technical specs, drop
+* Other Features: duplicated with other columns, to drop
+* Categorical Variables (Set to Categorical Variables)
+* Drivetrain: to categorical
+* Body Style: to categorical
+* Air Bag-Frontal-Driver: to categorical
+* Air Bag-Frontal-Passenger: to categorical
+* Air Bag-Passenger Switch (On/Off): to categorical
+* Air Bag-Side Body-Front: to categorical
+* Air Bag-Side Body-Rear: to categorical
+* Air Bag-Side Head-Front: to categorical
+* Air Bag-Side Head-Rear: to categorical
+* Brakes-ABS: to categorical
+* Child Safety Rear Door Locks: to categorical
+* Daytime Running Lights: to categorical
+* Traction Control: to categorical
+* Night Vision: to categorical
+* Rollover Protection Bars: to categorical
+* Fog Lamps: to categorical
+* Parking Aid: to categorical
+* Tire Pressure Monitor: to categorical
+* Back-Up Camera: to categorical
+* Stability Control: to categorical
+* Engine Configuration: to categorical
+* Engine Class: to categorical
+* Year: to categorical
+* Categorical Variables (Simplify the Categories and Set to Categorical Variables)
+* Fuel System: some duplicated types, need to be cleaned
+* Steering Type: some duplicated types, need to be cleaned
+* Suspension Type - Front: some duplicated types, need to be cleaned
+* Suspension Type - Rear: some duplicated types, need to be cleaned
+* Numerical Variables (Keep Original)
+* Passenger Capacity
+* Passenger Doors
+* Base Curb Weight (lbs)
+* Front Hip Room (in)
+* Front Leg Room (in)
+* Second Shoulder Room (in)
+* Passenger Volume
+* Second Head Room (in)
+* Front Shoulder Room (in)
+* Second Hip Room (in)
+* Front Head Room (in)
+* Second Leg Room (in)
+* Wheelbase (in)
+* Track Width, Front (in)
+* Width, Max w/o mirrors (in)
+* Track Width, Rear (in)
+* Height, Overall (in)
+* Fuel Tank Capacity, Approx (gal)
+* Fuel Economy Est-Combined (MPG)
+* EPA Fuel Economy Est - City (MPG)
+* EPA Fuel Economy Est - Hwy (MPG)
+* First Gear Ratio (:1)
+* Fourth Gear Ratio (:1)
+* Second Gear Ratio (:1)
+* Reverse Ratio (:1)
+* Fifth Gear Ratio (:1)
+* Trans Type
+* Third Gear Ratio (:1)
+* Final Drive Axle Ratio (:1)
+* Turning Diameter - Curb to Curb
+* Front Wheel Material
+* Maximum Alternator Capacity (amps)
+* Gears
+* Net Horsepower
+* Net Horsepower RPM
+* Net Torque
+* Net Torque RPM
+* Displacement (L)
+* Displacement (cc)
+* Rear Tire Width
+* Front Tire Width
+* Rear Wheel Size
+* Front Wheel Size
+* Tire Width Ratio
+* Wheel Size Ratio
+* Tire Ratio
