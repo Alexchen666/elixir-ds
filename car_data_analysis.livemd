@@ -24,6 +24,7 @@ All the assumptions I took in the project:
 
 ```elixir
 require Explorer.DataFrame, as: DF
+require Explorer.Series, as: S
 require Explorer.Query, as: Q
 ```
 
@@ -54,9 +55,8 @@ In this section, I will work on several things,
 Among all featuers, it is difficult to know the meaning of `Other Features`, so I worked on this first.
 
 ```elixir
-(df 
-  |> DF.select("Other Features") 
-  |> DF.to_series())["Other Features"] 
+df 
+  |> DF.pull("Other Features")
   |> Explorer.Series.split("\r\n") 
   |> Explorer.Series.to_list()
   |> List.flatten()
@@ -170,3 +170,130 @@ Consider all variables,
 * Tire Width Ratio
 * Wheel Size Ratio
 * Tire Ratio
+
+```elixir
+df1 = df |> DF.discard(["Car_Make_Model_Style", 
+  "Style Name", "EPA Classification", "Other Features",
+  "Basic Miles/km", "Basic Years", "Corrosion Miles/km", "Corrosion Years",
+  "Drivetrain Miles/km", "Drivetrain Years", "Roadside Assistance Miles/km" ,
+  "Roadside Assistance Years"]) # drop the unnecessary variables
+    |> DF.drop_nil("MSRP") # drop the data with NA values in MSRP
+```
+
+```elixir
+# check the unique values for the variables which needing to be simplified
+df1 |> DF.select(["Fuel System", "Steering Type", "Suspension Type - Front", 
+  "Suspension Type - Rear"]) 
+  |> DF.to_series() 
+  |> Enum.map(fn {k, v} -> {k, Explorer.Series.distinct(v)} end)
+```
+
+To simplify the categories for these four variables, I refered the data below,
+
+[1] Fuel System: https://autoportal.com/articles/what-is-gdi-fsi-cgi-sidi-direct-injection-6965.html
+
+[2] Steering Type: https://steeringly.com/rack-and-pinion-system-vs-power-steering-system-what-are-the-differences/
+
+[3] Suspension Type: https://www.caranddriver.com/news/a15340751/explained-the-five-most-common-automotive-suspensions/
+
+```elixir
+fuel_system_map = fn c ->
+  case c do
+    "Sequential MPI (injection)" -> "Sequential MPI"
+    "Gasoline Direct Injection" -> "DI"
+    "Diesel Direct Injection" -> "DI"
+    "Direct Injection" -> "DI"
+    _ -> c
+  end
+end
+
+steering_type_map = fn c ->
+  case c do
+    "Rack-Pinion" -> "Rack & Pinion"
+    "Electric Rack-&-Pinion" -> "Electric Rack & Pinion"
+    "4-Wheel Pwr Rack & Pinion" -> "Pwr Rack & Pinion"
+    "Electric Variable-Effort Power" -> "Electric Pwr Steering"
+    "Electric Power Steering" -> "Electric Pwr Steering"
+    "Electric Pwr" -> "Electric Pwr Steering"
+    "Pwr Rack-&-Pinion" -> "Pwr Rack & Pinion"
+    "Pwr Electric Assist" -> "Electric Pwr Steering"
+    _ -> c
+  end
+end
+
+suspension_front_map = fn c ->
+  case c do
+    "Double Wishbone Pushrod" -> "Double Wishbone"
+    "Independent MacPherson Strut" -> "MacPherson Strut"
+    "HiPer strut" -> "HiPer Strut"
+    "MacPherson strut" -> "MacPherson Strut"
+    "HiPER strut" -> "HiPer Strut"
+    "Independent SLA" -> "Short/Long Arm"
+    "Coil springs" -> "Coil Spring"
+    "Short And Long Arm" -> "Short/Long Arm"
+    "Coil Over Strut" -> "Coil-Over Strut"
+    "Coil-Over Shock" -> "Coil-Over Strut"
+    _ -> c
+  end
+end
+
+suspension_rear_map = fn c ->
+  case c do
+    "5-link" -> "Multi-Link"
+    "4-Link" -> "Multi-Link"
+    "5-Link" -> "Multi-Link"
+    "Four-Link Independent" -> "Multi-Link"
+    "Five-Link" -> "Multi-Link"
+    "Independent Multi-Link" -> "Multi-Link"
+    "Independent multi-link" -> "Multi-Link"
+    "Independent Five-Link" -> "Multi-Link"
+    "Five-Link Independent" -> "Multi-Link"
+    "Four-Link" -> "Multi-Link"
+    "Multi link" -> "Multi-Link"
+    "Independent" -> "Multi-Link"
+    "Multi-link" -> "Multi-Link"
+    "Linked H-arm" -> "H-Arm"
+    "Linked H-Arm" -> "H-Arm"
+    "2-Stage Multi-Leaf" -> "Multi-Leaf"
+    "Z-Link Compound Crank" -> "Compound Crank"
+    "Compound Crank (Torsion Beam)" -> "Compound Crank"
+    "Torsion Beam" -> "Compound Crank"
+    "Semi-independent" -> "Compound Crank"
+    "Semi-Independent Torsion Beam" -> "Compound Crank"
+    "Leaf" -> "Multi-Leaf"
+    "Short And Long Arm" -> "Short/Long Arm"
+    "Trailing arm" -> "Trailing Arm"
+    _ -> c
+  end
+end
+```
+
+```elixir
+to_cat = ["Drivetrain", "Body Style", "Engine Configuration", "Engine Class",
+  "Front Wheel Material", "Air Bag-Frontal-Driver", "Air Bag-Frontal-Passenger", 
+  "Air Bag-Passenger Switch (On/Off)", "Air Bag-Side Body-Front", "Air Bag-Side Body-Rear",
+  "Air Bag-Side Head-Front", "Air Bag-Side Head-Rear", "Brakes-ABS",
+  "Child Safety Rear Door Locks", "Daytime Running Lights", "Traction Control",
+  "Night Vision", "Rollover Protection Bars", "Fog Lamps", "Parking Aid", "Tire Pressure Monitor",
+  "Back-Up Camera", "Stability Control"]
+```
+
+```elixir
+df2 = df1 |> DF.mutate_with(
+  %{"Fuel System" => df1["Fuel System"] |> S.transform(&(fuel_system_map.(&1))) 
+    |> S.cast(:category),
+  "Steering Type" => df1["Steering Type"] |> S.transform(&(steering_type_map.(&1))) 
+    |> S.cast(:category),
+  "Suspension Type - Front" => df1["Suspension Type - Front"] 
+    |> S.transform(&(suspension_front_map.(&1))) |> S.cast(:category),
+  "Suspension Type - Rear" => df1["Suspension Type - Rear"] 
+    |> S.transform(&(suspension_rear_map.(&1))) |> S.cast(:category),
+  }
+)
+```
+
+```elixir
+categorise = fn df, col ->
+  df |> DF.pull(col) |> S.cast(:category)
+end
+```
