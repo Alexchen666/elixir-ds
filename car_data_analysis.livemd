@@ -4,7 +4,10 @@
 
 ```elixir
 Mix.install([
-  {:explorer, "~> 0.11.1"}
+  {:explorer, "~> 0.11.1"},
+  {:kino_vega_lite, "~> 0.1.11"},
+  {:scholar, "~> 0.4.1"},
+  {:nx, "~> 0.10.0"}
 ])
 ```
 
@@ -176,7 +179,7 @@ df1 = df |> DF.discard(["Car_Make_Model_Style",
   "Style Name", "EPA Classification", "Other Features",
   "Basic Miles/km", "Basic Years", "Corrosion Miles/km", "Corrosion Years",
   "Drivetrain Miles/km", "Drivetrain Years", "Roadside Assistance Miles/km" ,
-  "Roadside Assistance Years"]) # drop the unnecessary variables
+  "Roadside Assistance Years", ""]) # drop the unnecessary variables
     |> DF.drop_nil("MSRP") # drop the data with NA values in MSRP
 ```
 
@@ -288,12 +291,242 @@ df2 = df1 |> DF.mutate_with(
     |> S.transform(&(suspension_front_map.(&1))) |> S.cast(:category),
   "Suspension Type - Rear" => df1["Suspension Type - Rear"] 
     |> S.transform(&(suspension_rear_map.(&1))) |> S.cast(:category),
+  "Year" => df1["Year"] 
+    |> S.transform(&(suspension_rear_map.(&1))) |> S.cast(:integer) 
+      |> S.cast(:string) |> S.cast(:category),
   }
-)
+) |> DF.mutate_with(fn ldf ->
+  to_cat
+  |> Enum.map(&{String.to_atom(&1), S.cast(ldf[&1], :category)})
+  |> Map.new()
+  end)
 ```
 
 ```elixir
-categorise = fn df, col ->
-  df |> DF.pull(col) |> S.cast(:category)
-end
+df2 |> DF.describe()
+```
+
+## 3. Data Visualisation
+
+In the section, I will focus on the relationships between explanatory variables and the response variable `MSRP`. Because of a large number of variables, I will only demonstrate some of them.
+
+```elixir
+VegaLite.new(width: 600, height: 400, title: "MSRP")
+|> VegaLite.data_from_values(df2, only: ["MSRP"])
+|> VegaLite.mark(:bar)
+|> VegaLite.encode_field(:x, "MSRP", type: :quantitative)
+|> VegaLite.encode(:y, aggregate: :count)
+```
+
+The distribution of `MSRP` is skewed to right, which is a problem for certain kinds of models (such as Lasso Regression), so for the modelling, I will take log to make it close to normal distribution.
+
+Below are the relationships between numerical variables and `MSRP`.
+
+It is obvious that `Base Curb Weight (lbs)`, `Width`, `Max w/o mirrors (in)`, and `EPA Fuel Economy Est - City (MPG)` have correlations with `MSRP`, the first two have the positive one while the latter has the negative one. Besides, as `Width`, `Max w/o mirrors (in)` increases, the values of `MSRP` spread out, on the other hand, as `EPA Fuel Economy Est - City (MPG)` increases, the values of `MSRP` spread out. In fact, this is a common effect in this dataset, I think it is because some specs are more popular, many manufacturers produce cars based on similar models (with similar specs), but they have different pricing strategies, making the tendency spread out. A good example is the plot of `MSRP` against `Passenger Capacity`, the most common specs (from 2 to 5 seats) have the most diverse prices. I believe that is the reason resulting for the negative relationship between `EPA Fuel Economy Est - City (MPG)` and `MSRP`, at first it is counterintuitive since it means that the more fuel-efficient car is cheaper, but if taking the reasoning above into account, it would make sense.
+
+[4] EPA Fuel Economy Est - City (MPG): https://fueleconomy.gov/feg/label/learn-more-gasoline-label.shtml
+
+```elixir
+VegaLite.new(width: 600, height: 400, title: "MSRP vs. Passenger Capacity")
+|> VegaLite.data_from_values(df2, only: ["Passenger Capacity", "MSRP"])
+|> VegaLite.mark(:point)
+|> VegaLite.encode_field(:x, "Passenger Capacity", type: :quantitative)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 600, height: 400, title: "MSRP vs. Base Curb Weight (lbs)")
+|> VegaLite.data_from_values(df2, only: ["Base Curb Weight (lbs)", "MSRP"])
+|> VegaLite.mark(:point)
+|> VegaLite.encode_field(:x, "Base Curb Weight (lbs)", type: :quantitative)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 600, height: 400, title: "MSRP vs. Width, Max w/o mirrors (in)")
+|> VegaLite.data_from_values(df2, only: ["Width, Max w/o mirrors (in)", "MSRP"])
+|> VegaLite.mark(:point)
+|> VegaLite.encode_field(:x, "Width, Max w/o mirrors (in)", type: :quantitative)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 600, height: 400, title: "MSRP vs. EPA Fuel Economy Est - City (MPG)")
+|> VegaLite.data_from_values(df2, only: ["EPA Fuel Economy Est - City (MPG)", "MSRP"])
+|> VegaLite.mark(:point)
+|> VegaLite.encode_field(:x, "EPA Fuel Economy Est - City (MPG)", type: :quantitative)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+In the plot here, there are positive relationships between `MSRP` and `Net Horsepower`, `Net Torque`, `Displacement (cc)`, and `Rear Wheel Size`, and also as the values increase, the price spread out, reflecting the diverse pricing strategies in the market. One thing interesting is that the relationships between `MSRP` and `Net Horsepower RPM` and `Net Torque RPM` are not obvious even though the clear relationships between `MSRP` and `Net Horsepower` and `Net Torque`.
+
+```elixir
+VegaLite.new(width: 600, height: 400, title: "MSRP vs. Net Horsepower")
+|> VegaLite.data_from_values(df2, only: ["Net Horsepower", "MSRP"])
+|> VegaLite.mark(:point)
+|> VegaLite.encode_field(:x, "Net Horsepower", type: :quantitative)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 600, height: 400, title: "MSRP vs. Net Horsepower RPM")
+|> VegaLite.data_from_values(df2, only: ["Net Horsepower RPM", "MSRP"])
+|> VegaLite.mark(:point)
+|> VegaLite.encode_field(:x, "Net Horsepower RPM", type: :quantitative)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 600, height: 400, title: "MSRP vs. Net Torque")
+|> VegaLite.data_from_values(df2, only: ["Net Torque", "MSRP"])
+|> VegaLite.mark(:point)
+|> VegaLite.encode_field(:x, "Net Torque", type: :quantitative)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 600, height: 400, title: "MSRP vs. Net Torque RPM")
+|> VegaLite.data_from_values(df2, only: ["Net Torque RPM", "MSRP"])
+|> VegaLite.mark(:point)
+|> VegaLite.encode_field(:x, "Net Torque RPM", type: :quantitative)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 600, height: 400, title: "MSRP vs. Displacement (cc)")
+|> VegaLite.data_from_values(df2, only: ["Displacement (cc)", "MSRP"])
+|> VegaLite.mark(:point)
+|> VegaLite.encode_field(:x, "Displacement (cc)", type: :quantitative)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 600, height: 400, title: "MSRP vs. Rear Wheel Size")
+|> VegaLite.data_from_values(df2, only: ["Rear Wheel Size", "MSRP"])
+|> VegaLite.mark(:point)
+|> VegaLite.encode_field(:x, "Rear Wheel Size", type: :quantitative)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 400, height: 200, title: "MSRP vs. Fuel System")
+|> VegaLite.data_from_values(df2, only: ["Fuel System", "MSRP"])
+|> VegaLite.mark(:boxplot)
+|> VegaLite.encode_field(:x, "Fuel System", type: :nominal)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 400, height: 200, title: "MSRP vs. Steering Type")
+|> VegaLite.data_from_values(df2, only: ["Steering Type", "MSRP"])
+|> VegaLite.mark(:boxplot)
+|> VegaLite.encode_field(:x, "Steering Type", type: :nominal)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 400, height: 200, title: "MSRP vs. Suspension Type - Front")
+|> VegaLite.data_from_values(df2, only: ["Suspension Type - Front", "MSRP"])
+|> VegaLite.mark(:boxplot)
+|> VegaLite.encode_field(:x, "Suspension Type - Front", type: :nominal)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 400, height: 200, title: "MSRP vs. Night Vision")
+|> VegaLite.data_from_values(df2, only: ["Night Vision", "MSRP"])
+|> VegaLite.mark(:boxplot)
+|> VegaLite.encode_field(:x, "Night Vision", type: :nominal)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 400, height: 200, title: "MSRP vs. Child Safety Rear Door Locks")
+|> VegaLite.data_from_values(df2, only: ["Child Safety Rear Door Locks", "MSRP"])
+|> VegaLite.mark(:boxplot)
+|> VegaLite.encode_field(:x, "Child Safety Rear Door Locks", type: :nominal)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+```elixir
+VegaLite.new(width: 400, height: 200, title: "MSRP vs. Year")
+|> VegaLite.data_from_values(df2, only: ["Year", "MSRP"])
+|> VegaLite.mark(:boxplot)
+|> VegaLite.encode_field(:x, "Year", type: :nominal)
+|> VegaLite.encode_field(:y, "MSRP", type: :quantitative)
+```
+
+## 4. Feature Engineering
+
+In this part, I will transform the response variable `MSRP` to log scale for better performance mentioned in the last section. Then, I will replace empty categorical values with "Missing" and encode categorical variables with one-hot encoding. Last, I will split the data into three parts, training data, validating data, and testing data.
+
+```elixir
+df2 
+|> DF.rename_with(&(String.replace(&1, " ", "_"))) # concatenate the string
+```
+
+```elixir
+df_Y = df2 |> DF.pull("MSRP")
+df_X = df2 |> DF.discard("MSRP")
+```
+
+```elixir
+df_num = df_X |> DF.select(fn _name, type -> type != :category end) 
+  |> DF.mutate_with(
+    fn ldf ->
+      for col_name <- DF.names(ldf) do
+        {col_name, S.cast(ldf[col_name], :f64) |> S.fill_missing(:nan)}
+      end
+    end
+  ) 
+```
+
+```elixir
+df_cat = df_X |> DF.mutate_with(fn ldf ->
+  ["Fuel System", "Steering Type", 
+  "Suspension Type - Front", "Suspension Type - Rear", "Year" | to_cat]
+  |> Enum.map(&{String.to_atom(&1), S.fill_missing(ldf[&1], "Missing")})
+  |> Map.new()
+  end) |> DF.dummies(fn _name, type -> type == :category end)
+```
+
+```elixir
+df_X1 = DF.concat_columns(df_num, df_cat)
+```
+
+```elixir
+x_tensor = Nx.stack(df_X1, axis: 1)
+y_tensor = Nx.stack(df_Y, axis: 1)
+```
+
+```elixir
+key = Nx.Random.key(42)
+n_samples_1 = Nx.axis_size(x_tensor, 0)
+train_size_1 = floor(n_samples_1 * 0.8)
+
+# Create shuffled indices
+indices_1 = Nx.iota({n_samples_1})
+{shuffled_indices_1, _} = Nx.Random.shuffle(key, indices_1)
+
+train_idx_1 = shuffled_indices_1[0..(train_size_1 - 1)]
+test_idx_1 = shuffled_indices_1[train_size_1..-1//1]
+
+x_train_1 = Nx.take(x_tensor, train_idx_1)
+x_test = Nx.take(x_tensor, test_idx_1)
+y_train_1 = Nx.take(y_tensor, train_idx_1)
+y_test = Nx.take(y_tensor, test_idx_1)
+
+n_samples_2 = Nx.axis_size(x_train_1, 0)
+train_size_2 = floor(n_samples_2 * 0.8)
+
+indices_2 = Nx.iota({n_samples_2})
+{shuffled_indices_2, _} = Nx.Random.shuffle(key, indices_2)
+
+train_idx_2 = shuffled_indices_2[0..(train_size_2 - 1)]
+test_idx_2 = shuffled_indices_2[train_size_2..-1//1]
+
+x_train = Nx.take(x_train_1, train_idx_2)
+x_val = Nx.take(x_train_1, test_idx_2)
+y_train = Nx.take(y_train_1, train_idx_2)
+y_val = Nx.take(y_train_1, test_idx_2)
 ```
